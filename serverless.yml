@@ -1,0 +1,115 @@
+service: formula-monitor-${env:FORMULA_INSTANCE_ID}
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+  iamRoleStatements:
+  - Effect: Allow
+    Action:
+      - cloudwatch:PutMetricData
+    Resource: "*"
+
+plugins:
+  - serverless-cloud-elements-plugin
+
+functions:
+  monitor:
+    handler: handler.eventHandler
+    timeout: 60
+    memorySize: 128
+    environment:
+      FORMULA_INSTANCE_ID: ${env:FORMULA_INSTANCE_ID}
+      INTERVAL_IN_MINUTES: 5
+      FORMULA_INSTANCE_NAME: ${env:FORMULA_INSTANCE_NAME}
+    events:
+      - schedule: cron(*/5 * * * ? *)
+
+resources:
+  Resources:
+    account:
+      Type: CE::Account
+      Properties:
+        userToken: ${env:USER_TOKEN}
+        orgToken: ${env:ORG_TOKEN}
+        baseUrl: ${env:BASE_URL}
+    dashboard:
+      Type: AWS::CloudWatch::Dashboard
+      Properties:
+        DashboardName: ${env:FORMULA_INSTANCE_ID}-dashboard
+        DashboardBody: >
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "${env:FORMULA_INSTANCE_NAME}",
+                      "executionStarts"
+                    ]
+                  ],
+                  "region": "us-east-1"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "${env:FORMULA_INSTANCE_NAME}",
+                      "failedRequestSteps"
+                    ],
+                    [
+                      "${env:FORMULA_INSTANCE_NAME}",
+                      "failedScriptSteps"
+                    ]
+                  ],
+                  "region": "us-east-1"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "${env:FORMULA_INSTANCE_NAME}",
+                      "load"
+                    ]
+                  ],
+                  "region": "us-east-1"
+                }
+              },
+              {
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    [
+                      "${env:FORMULA_INSTANCE_NAME}",
+                      "steps"
+                    ]
+                  ],
+                  "region": "us-east-1"
+                }
+              }
+            ]
+          }
+    alarmNotificationSNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        Subscription:
+        - Endpoint: "email@ddresses.here"
+          Protocol: email
+    alarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties: 
+        AlarmName: ${env:FORMULA_INSTANCE_NAME} Failed Script Step Alarm
+        AlarmDescription: Alert someone when something happens
+        AlarmActions:
+        - Ref: "alarmNotificationSNSTopic"
+        Namespace: ${env:FORMULA_INSTANCE_NAME}
+        MetricName: failedScriptSteps
+        Statistic: Average
+        Period: '300'
+        EvaluationPeriods: '1'
+        ComparisonOperator: GreaterThanThreshold
+        Threshold: '0'
